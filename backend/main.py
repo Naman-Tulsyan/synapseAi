@@ -308,6 +308,12 @@ def process_video(video_id: str, filepath: str, sport: str = "general"):
 
         risk_events: list[dict] = []
 
+        # Per-second timestamped analysis snapshots
+        timestamped_analysis: list[dict] = []
+        current_second_risks: list[dict] = []  # accumulator for current second
+        current_second_details: list[dict] = []
+        last_snapshot_second: int = -1
+
         print(f"📹 Processing video {video_id}: {width}x{height} @ {fps:.0f}fps, {total_frames} frames")
 
         while cap.isOpened():
@@ -349,6 +355,44 @@ def process_video(video_id: str, filepath: str, sport: str = "general"):
                         all_keypoints.append(kp_list)
 
             all_risk_scores.append(frame_max_risk)
+
+            # ── Per-second snapshot collection ──
+            current_second = int(frame_count / fps) if fps > 0 else 0
+            if current_second != last_snapshot_second:
+                # Save snapshot for the previous second (if we have data)
+                if last_snapshot_second >= 0 and current_second_risks:
+                    # Aggregate: pick highest composite risk frame from this second
+                    best = max(current_second_risks, key=lambda x: x["compositeRisk"])
+                    timestamped_analysis.append(best)
+                # Reset accumulator for new second
+                current_second_risks = []
+                last_snapshot_second = current_second
+
+            # Build snapshot for this frame
+            snapshot_factors = []
+            for factor, risk_val in frame_risks_all.items():
+                if risk_val >= 10:  # include anything non-trivial
+                    detail_key = {
+                        "L_ACL": "L_Knee", "R_ACL": "R_Knee",
+                        "L_Hip": "L_Hip", "R_Hip": "R_Hip", "Trunk": "Trunk",
+                    }.get(factor)
+                    snapshot_factors.append({
+                        "factor": factor,
+                        "risk": risk_val,
+                        "part": FACTOR_TO_PART.get(factor, factor),
+                        "severity": risk_severity(risk_val),
+                        "description": FACTOR_DESCRIPTIONS.get(factor, f"Risk detected in {factor}"),
+                        "angle": round(frame_details_all.get(detail_key, 0), 1) if detail_key and detail_key in frame_details_all else None,
+                    })
+
+            current_second_risks.append({
+                "timestamp": frames_to_timestamp(frame_count, fps),
+                "second": current_second,
+                "frame": frame_count,
+                "compositeRisk": frame_max_risk,
+                "severity": risk_severity(frame_max_risk),
+                "factors": sorted(snapshot_factors, key=lambda x: -x["risk"]),
+            })
 
             # ── Event detection: track when risk factors activate/deactivate ──
             for factor, risk_val in frame_risks_all.items():
@@ -418,6 +462,11 @@ def process_video(video_id: str, filepath: str, sport: str = "general"):
                     "angle": round(state["peak_angle"], 1) if state["peak_angle"] is not None else None,
                 })
 
+        # Flush last second of timestamped snapshots
+        if current_second_risks:
+            best = max(current_second_risks, key=lambda x: x["compositeRisk"])
+            timestamped_analysis.append(best)
+
         # Deduplicate events by (timestamp, part), keep highest risk
         seen: set = set()
         unique_events: list[dict] = []
@@ -480,6 +529,7 @@ def process_video(video_id: str, filepath: str, sport: str = "general"):
             "pose_keypoints": all_keypoints,
             "suggestions": suggestions,
             "riskTimeline": [int(s) for s in all_risk_scores],
+            "timestampedAnalysis": timestamped_analysis,
             "annotatedVideoUrl": video_url,
             "totalFrames": frame_count,
             "peakRisk": peak_risk,

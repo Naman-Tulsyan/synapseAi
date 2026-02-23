@@ -10,6 +10,24 @@ export interface RiskEntry {
   angle?: number;
 }
 
+export interface TimestampFactor {
+  factor: string;
+  risk: number;
+  part: string;
+  severity: "HIGH" | "MEDIUM" | "LOW" | "CRITICAL";
+  description: string;
+  angle?: number | null;
+}
+
+export interface TimestampSnapshot {
+  timestamp: string;
+  second: number;
+  frame: number;
+  compositeRisk: number;
+  severity: "HIGH" | "MEDIUM" | "LOW" | "CRITICAL";
+  factors: TimestampFactor[];
+}
+
 export interface PoseKeypoint {
   x: number;
   y: number;
@@ -30,6 +48,7 @@ export interface AnalysisData {
   pose_keypoints?: PoseKeypoint[][];
   suggestions?: string[];
   riskTimeline?: number[];
+  timestampedAnalysis?: TimestampSnapshot[];
   annotatedVideoUrl?: string;
   totalFrames?: number;
   peakRisk?: number;
