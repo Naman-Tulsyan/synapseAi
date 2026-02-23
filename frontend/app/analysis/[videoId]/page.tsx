@@ -28,140 +28,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import Navbar from "@/components/navbar";
+import {
+  getAnalysis,
+  sendChat,
+  getAnnotatedVideoUrl,
+  getOriginalVideoUrl,
+} from "@/lib/api";
 import type { AnalysisData, RiskEntry, ChatResponse } from "@/lib/api";
-
-// ── Hardcoded analysis data (no backend needed for demo) ────────
-
-const MOCK_ANALYSIS: AnalysisData = {
-  videoId: "demo_cricket",
-  sport: "Cricket",
-  playerName: "Arjun Mehta",
-  overallRisk: 72,
-  overallSeverity: "HIGH",
-  duration: "0:45",
-  fps: 30,
-  risks: [
-    {
-      timestamp: "0:05",
-      frame: 150,
-      risk: 32,
-      part: "ankle",
-      severity: "LOW",
-      description: "Minor ankle pronation detected during landing phase.",
-      angle: 8.0,
-    },
-    {
-      timestamp: "0:12",
-      frame: 360,
-      risk: 45,
-      part: "shoulder",
-      severity: "MEDIUM",
-      description:
-        "Shoulder external rotation exceeds safe range during throw.",
-      angle: 12.5,
-    },
-    {
-      timestamp: "0:18",
-      frame: 540,
-      risk: 58,
-      part: "hip",
-      severity: "MEDIUM",
-      description: "Hip flexor imbalance during lateral movement.",
-      angle: 15.0,
-    },
-    {
-      timestamp: "0:23",
-      frame: 690,
-      risk: 85,
-      part: "knee",
-      severity: "HIGH",
-      description:
-        "Knee valgus 18° detected — 85% ACL injury risk. Immediate form correction needed.",
-      angle: 18.0,
-    },
-    {
-      timestamp: "0:31",
-      frame: 930,
-      risk: 67,
-      part: "lower_back",
-      severity: "MEDIUM",
-      description: "Excessive lumbar flexion during rapid deceleration phase.",
-      angle: 22.0,
-    },
-    {
-      timestamp: "0:38",
-      frame: 1140,
-      risk: 78,
-      part: "knee",
-      severity: "HIGH",
-      description: "Repeated valgus stress on right knee during pivot.",
-      angle: 16.5,
-    },
-    {
-      timestamp: "0:42",
-      frame: 1260,
-      risk: 25,
-      part: "wrist",
-      severity: "LOW",
-      description: "Wrist hyperextension within acceptable training range.",
-      angle: 5.0,
-    },
-  ],
-  pose_keypoints: [],
-  suggestions: [
-    "Implement knee valgus correction drills before each session",
-    "Reduce bowling workload by 15% for next 2 weeks",
-    "Schedule biomechanics assessment within 48 hours",
-    "Use supportive knee brace during high-intensity training",
-    "Add 10-min hip mobility warm-up to pre-session routine",
-  ],
-};
-
-const CHAT_DB: Record<
-  string,
-  { reply: string; confidence: number; relatedTimestamp?: string }
-> = {
-  knee: {
-    reply:
-      "🦵 **Knee Valgus Alert** — At timestamp 0:23, we detected an 18° knee valgus angle, which correlates with an **85% ACL injury risk**. This inward knee collapse during deceleration is a primary ACL injury mechanism.\n\n**Recommended Actions:**\n1. Single-leg squat corrective drills\n2. Knee-over-toe strengthening program\n3. Consider a supportive knee brace",
-    confidence: 0.92,
-    relatedTimestamp: "0:23",
-  },
-  shoulder: {
-    reply:
-      "💪 **Shoulder External Rotation** — At 0:12, the shoulder joint exceeded safe external rotation limits by 12.5°. Currently at **MEDIUM risk (45%)**.\n\n**Recommended Actions:**\n1. Rotator cuff strengthening exercises\n2. Reduce throwing volume by 20%\n3. Apply ice post-session for 15 minutes",
-    confidence: 0.87,
-    relatedTimestamp: "0:12",
-  },
-  hip: {
-    reply:
-      "🏃 **Hip Flexor Imbalance** — At 0:18, asymmetric hip flexion detected during lateral movement. Left hip shows 15° more flexion than right.\n\n**Recommended Actions:**\n1. Bilateral hip mobility drills\n2. Foam rolling IT band\n3. Glute activation warm-up",
-    confidence: 0.84,
-    relatedTimestamp: "0:18",
-  },
-  back: {
-    reply:
-      "🔙 **Lumbar Flexion Warning** — At 0:31, excessive forward lean (22°) during rapid deceleration. Risk: **MEDIUM (67%)**.\n\n**Recommended Actions:**\n1. Core stabilization exercises\n2. Deceleration technique coaching\n3. Hip hinge drills",
-    confidence: 0.89,
-    relatedTimestamp: "0:31",
-  },
-  default: {
-    reply:
-      "🤖 Based on pose estimation analysis, I identified **7 risk events** this session. Highest priority: **knee valgus** at 0:23 (85% risk). Ask me about any specific body part or timestamp!",
-    confidence: 0.85,
-  },
-};
-
-function getAIResponse(message: string): ChatResponse {
-  const text = message.toLowerCase();
-  if (text.includes("knee") || text.includes("acl") || text.includes("valgus"))
-    return CHAT_DB.knee;
-  if (text.includes("shoulder") || text.includes("rotation"))
-    return CHAT_DB.shoulder;
-  if (text.includes("hip")) return CHAT_DB.hip;
-  if (text.includes("back") || text.includes("lumbar")) return CHAT_DB.back;
-  return CHAT_DB.default;
-}
 
 // ── Pose Skeleton Overlay ───────────────────────────────────────
 
@@ -407,6 +280,14 @@ function RiskCard({
       barColor: "bg-red-500",
       icon: "🔥",
     },
+    CRITICAL: {
+      border: "border-red-500/30",
+      bg: "bg-red-500/[0.10]",
+      activeBg: "bg-red-500/[0.15]",
+      text: "text-red-400",
+      barColor: "bg-red-500",
+      icon: "🚨",
+    },
     MEDIUM: {
       border: "border-amber-500/30",
       bg: "bg-amber-500/[0.07]",
@@ -491,47 +372,73 @@ export default function AnalysisPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const videoId = params.videoId as string;
-  const sport = searchParams.get("sport") || "cricket";
+  const sport = searchParams.get("sport") || "general";
 
-  const [data] = useState<AnalysisData>(MOCK_ANALYSIS);
+  const [data, setData] = useState<AnalysisData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [activeRiskIdx, setActiveRiskIdx] = useState<number | null>(null);
   const [showPose, setShowPose] = useState(true);
   const [rightTab, setRightTab] = useState<"risks" | "chat">("risks");
-  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([
-    {
-      id: 1,
-      role: "ai",
-      text: "👋 I'm your PoseGuard AI assistant. I've analyzed the session and found 7 risk events. The most critical is a knee valgus at 0:23 with 85% ACL risk. Ask me anything!",
-      confidence: 0.95,
-    },
-    {
-      id: 2,
-      role: "user",
-      text: "Why is there a risk at 0:23?",
-    },
-    {
-      id: 3,
-      role: "ai",
-      text: "🦵 At 0:23, I detected an 18° knee valgus angle during deceleration. This inward knee collapse is the primary ACL injury mechanism — current risk: 85%.\n\nRecommend: Single-leg squat drills + knee brace for high-intensity sessions.",
-      confidence: 0.92,
-      relatedTimestamp: "0:23",
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  const totalDuration = 45; // seconds
-
+  // Poll for analysis results
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 1800);
-    return () => clearTimeout(timer);
-  }, []);
+    let pollTimer: ReturnType<typeof setInterval>;
+    let cancelled = false;
+
+    async function fetchAnalysis() {
+      try {
+        const result = await getAnalysis(videoId, sport);
+        if (cancelled) return;
+
+        if (result.status === "done") {
+          setData(result);
+          setIsLoading(false);
+          // Add initial chat message
+          const riskCount = result.risks?.length || 0;
+          const topRisk = result.risks?.length
+            ? result.risks.reduce((a, b) => (a.risk > b.risk ? a : b))
+            : null;
+          setChatMessages([
+            {
+              id: 1,
+              role: "ai",
+              text: topRisk
+                ? `👋 I'm your PoseGuard AI assistant. I've analyzed the session and found **${riskCount} risk events**. The most critical is **${topRisk.part.replace("_", " ")}** at ${topRisk.timestamp} with ${topRisk.risk}% risk. Ask me anything!`
+                : `👋 Analysis complete! I found ${riskCount} risk events in this session. Ask me about any specific body part or for an overall summary.`,
+              confidence: 0.95,
+            },
+          ]);
+          if (pollTimer) clearInterval(pollTimer);
+        } else if (result.status === "processing") {
+          setProcessingProgress((prev) => Math.min(prev + 5, 90));
+        } else if (result.status === "error") {
+          setData(result);
+          setIsLoading(false);
+          if (pollTimer) clearInterval(pollTimer);
+        }
+      } catch {
+        // Analysis not found yet, keep polling
+      }
+    }
+
+    fetchAnalysis();
+    pollTimer = setInterval(fetchAnalysis, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollTimer);
+    };
+  }, [videoId, sport]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -540,34 +447,28 @@ export default function AnalysisPage() {
     }
   }, [chatMessages, isTyping]);
 
-  // Playback simulation
-  useEffect(() => {
-    if (isPlaying) {
-      playIntervalRef.current = setInterval(() => {
-        setCurrentTime((prev) => {
-          if (prev >= totalDuration) {
-            setIsPlaying(false);
-            return 0;
-          }
-          return prev + 0.1;
-        });
-      }, 100);
-    } else if (playIntervalRef.current) {
-      clearInterval(playIntervalRef.current);
+  // Sync video state
+  const handleTimeUpdate = useCallback(() => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
     }
-    return () => {
-      if (playIntervalRef.current) clearInterval(playIntervalRef.current);
-    };
-  }, [isPlaying]);
+  }, []);
+
+  const handleLoadedMetadata = useCallback(() => {
+    if (videoRef.current) {
+      setVideoDuration(videoRef.current.duration);
+    }
+  }, []);
 
   // Auto-detect risk at current time
   useEffect(() => {
-    const timeStr = `0:${String(Math.floor(currentTime)).padStart(2, "0")}`;
+    if (!data?.risks) return;
+    const timeStr = formatTime(currentTime);
     const idx = data.risks.findIndex((r) => r.timestamp === timeStr);
     if (idx !== -1) {
       setActiveRiskIdx(idx);
     }
-  }, [currentTime, data.risks]);
+  }, [currentTime, data?.risks]);
 
   const handleSendChat = useCallback(async () => {
     if (!chatInput.trim()) return;
@@ -581,32 +482,60 @@ export default function AnalysisPage() {
     setIsTyping(true);
     setRightTab("chat");
 
-    await new Promise((r) => setTimeout(r, 1200));
-
-    const aiResponse = getAIResponse(userMsg.text);
-    const aiMsg: ChatMsg = {
-      id: Date.now() + 1,
-      role: "ai",
-      text: aiResponse.reply,
-      confidence: aiResponse.confidence,
-      relatedTimestamp: aiResponse.relatedTimestamp,
-    };
-    setChatMessages((prev) => [...prev, aiMsg]);
+    try {
+      const aiResponse = await sendChat(videoId, userMsg.text);
+      const aiMsg: ChatMsg = {
+        id: Date.now() + 1,
+        role: "ai",
+        text: aiResponse.reply,
+        confidence: aiResponse.confidence,
+        relatedTimestamp: aiResponse.relatedTimestamp || undefined,
+      };
+      setChatMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          role: "ai",
+          text: "Sorry, I couldn't process your question. Please try again.",
+          confidence: 0.5,
+        },
+      ]);
+    }
     setIsTyping(false);
-  }, [chatInput]);
+  }, [chatInput, videoId]);
 
   const jumpToTimestamp = (timestamp: string) => {
     const parts = timestamp.split(":");
     const seconds = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+    }
     setCurrentTime(seconds);
     setIsPlaying(false);
+    if (videoRef.current) videoRef.current.pause();
   };
 
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!timelineRef.current) return;
     const rect = timelineRef.current.getBoundingClientRect();
     const pct = (e.clientX - rect.left) / rect.width;
-    setCurrentTime(pct * totalDuration);
+    const newTime = pct * totalDuration;
+    setCurrentTime(newTime);
+    if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
+  };
+
+  const togglePlayback = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
   };
 
   const formatTime = (s: number) => {
@@ -614,6 +543,15 @@ export default function AnalysisPage() {
     const secs = Math.floor(s % 60);
     return `${mins}:${String(secs).padStart(2, "0")}`;
   };
+
+  const totalDuration =
+    videoDuration ||
+    (data?.duration
+      ? (() => {
+          const p = data.duration.split(":");
+          return parseInt(p[0]) * 60 + parseInt(p[1]);
+        })()
+      : 45);
 
   if (isLoading) {
     return (
@@ -627,17 +565,23 @@ export default function AnalysisPage() {
           >
             <div className="w-20 h-20 mx-auto mb-6 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
             <h2 className="text-xl font-semibold text-white mb-2">
-              Analyzing Video...
+              Analyzing Video with YOLOv8...
             </h2>
             <p className="text-white/40 text-sm">
-              AI pose estimation in progress
+              Real-time pose estimation & risk analysis in progress
             </p>
+            <div className="mt-4 max-w-xs mx-auto">
+              <Progress value={processingProgress} className="h-2 bg-white/5" />
+              <p className="text-xs text-white/30 mt-2">
+                {processingProgress}% — Processing frames...
+              </p>
+            </div>
             <div className="mt-6 max-w-xs mx-auto space-y-3">
               {[
-                "Extracting keyframes",
-                "Running MediaPipe",
-                "Computing risk scores",
-                "Generating report",
+                "Extracting video frames",
+                "Running YOLOv8 Pose model",
+                "Computing biomechanical risk",
+                "Generating annotated video",
               ].map((step, i) => (
                 <motion.div
                   key={step}
@@ -658,7 +602,38 @@ export default function AnalysisPage() {
     );
   }
 
-  const activeRisk = activeRiskIdx !== null ? data.risks[activeRiskIdx] : null;
+  const activeRisk =
+    activeRiskIdx !== null && data?.risks ? data.risks[activeRiskIdx] : null;
+
+  if (!data || data.status === "error") {
+    return (
+      <main className="min-h-screen">
+        <Navbar />
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <AlertTriangle className="w-16 h-16 mx-auto mb-4 text-red-400" />
+            <h2 className="text-xl font-semibold text-white mb-2">
+              Analysis Failed
+            </h2>
+            <p className="text-white/40 text-sm mb-4">
+              {data?.error || "Something went wrong"}
+            </p>
+            <Link href="/">
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                Upload Another Video
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const risks = data.risks || [];
+  const suggestions = data.suggestions || [];
+  const annotatedVideoUrl = data.annotatedVideoUrl
+    ? getAnnotatedVideoUrl(data.annotatedVideoUrl)
+    : null;
 
   return (
     <main className="min-h-screen">
@@ -684,7 +659,8 @@ export default function AnalysisPage() {
                 </Badge>
               </h1>
               <p className="text-xs text-white/30">
-                {data.playerName} · {data.duration} duration · {data.fps}fps
+                {data.playerName} · {data.duration} duration · {data.fps}fps ·{" "}
+                {data.totalFrames} frames
               </p>
             </div>
           </div>
@@ -701,7 +677,7 @@ export default function AnalysisPage() {
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/20">
               <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
               <span className="text-sm font-bold text-red-400">
-                {data.overallRisk}%
+                {data.overallRisk ?? 0}%
               </span>
               <span className="text-xs text-red-400/60">OVERALL RISK</span>
             </div>
@@ -714,22 +690,33 @@ export default function AnalysisPage() {
           <div className="w-[65%] flex flex-col border-r border-white/[0.06]">
             {/* Video Area */}
             <div className="flex-1 relative bg-black/40 flex items-center justify-center overflow-hidden">
-              {/* Simulated video frame */}
-              <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-                    <Activity className="w-12 h-12 text-blue-500/30" />
+              {annotatedVideoUrl ? (
+                <video
+                  ref={videoRef}
+                  src={annotatedVideoUrl}
+                  className="absolute inset-0 w-full h-full object-contain bg-black"
+                  onTimeUpdate={handleTimeUpdate}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onEnded={() => setIsPlaying(false)}
+                  playsInline
+                />
+              ) : (
+                <>
+                  <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
+                        <Activity className="w-12 h-12 text-blue-500/30" />
+                      </div>
+                      <p className="text-white/20 text-sm">
+                        Video processing...
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-white/20 text-sm">
-                    {sport.charAt(0).toUpperCase() + sport.slice(1)} Training
-                    Session
-                  </p>
-                  <p className="text-white/10 text-xs mt-1">
-                    {formatTime(currentTime)} / {data.duration}
-                  </p>
-                </div>
-              </div>
+                </>
+              )}
 
               {/* Pose Overlay */}
               <AnimatePresence>
@@ -742,7 +729,12 @@ export default function AnalysisPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setCurrentTime(Math.max(0, currentTime - 5))}
+                    onClick={() => {
+                      const newTime = Math.max(0, currentTime - 5);
+                      setCurrentTime(newTime);
+                      if (videoRef.current)
+                        videoRef.current.currentTime = newTime;
+                    }}
                     className="text-white/60 hover:text-white h-8 w-8 p-0"
                   >
                     <SkipBack className="w-4 h-4" />
@@ -750,7 +742,7 @@ export default function AnalysisPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setIsPlaying(!isPlaying)}
+                    onClick={togglePlayback}
                     className="text-white hover:text-white h-10 w-10 p-0 bg-white/10 rounded-full"
                   >
                     {isPlaying ? (
@@ -762,9 +754,12 @@ export default function AnalysisPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() =>
-                      setCurrentTime(Math.min(totalDuration, currentTime + 5))
-                    }
+                    onClick={() => {
+                      const newTime = Math.min(totalDuration, currentTime + 5);
+                      setCurrentTime(newTime);
+                      if (videoRef.current)
+                        videoRef.current.currentTime = newTime;
+                    }}
                     className="text-white/60 hover:text-white h-8 w-8 p-0"
                   >
                     <SkipForward className="w-4 h-4" />
@@ -816,7 +811,7 @@ export default function AnalysisPage() {
                 </div>
 
                 {/* Risk markers on timeline */}
-                {data.risks.map((risk, i) => {
+                {risks.map((risk, i) => {
                   const parts = risk.timestamp.split(":");
                   const secs = parseInt(parts[0]) * 60 + parseInt(parts[1]);
                   const pct = (secs / totalDuration) * 100;
@@ -908,20 +903,20 @@ export default function AnalysisPage() {
                     <div className="flex items-baseline gap-2 mt-1">
                       <span
                         className={`text-4xl font-bold tabular-nums ${
-                          data.overallRisk >= 70
+                          (data.overallRisk ?? 0) >= 70
                             ? "text-red-400"
-                            : data.overallRisk >= 40
+                            : (data.overallRisk ?? 0) >= 40
                               ? "text-amber-400"
                               : "text-emerald-400"
                         }`}
                       >
-                        {data.overallRisk}%
+                        {data.overallRisk ?? 0}%
                       </span>
                       <Badge
                         className={`${
-                          data.overallRisk >= 70
+                          (data.overallRisk ?? 0) >= 70
                             ? "bg-red-500/20 text-red-400 border-red-500/30"
-                            : data.overallRisk >= 40
+                            : (data.overallRisk ?? 0) >= 40
                               ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
                               : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
                         }`}
@@ -936,13 +931,18 @@ export default function AnalysisPage() {
                   </div>
                 </div>
                 <Progress
-                  value={data.overallRisk}
+                  value={data.overallRisk ?? 0}
                   className="h-1.5 bg-white/5 mt-3"
                 />
                 <div className="flex items-center justify-between mt-2 text-[11px] text-white/30">
-                  <span>{data.risks.length} risk events detected</span>
+                  <span>{risks.length} risk events detected</span>
                   <span>
-                    {data.risks.filter((r) => r.severity === "HIGH").length}{" "}
+                    {
+                      risks.filter(
+                        (r) =>
+                          r.severity === "HIGH" || r.severity === "CRITICAL",
+                      ).length
+                    }{" "}
                     critical
                   </span>
                 </div>
@@ -969,7 +969,7 @@ export default function AnalysisPage() {
                         : "bg-white/5 text-white/30"
                     }`}
                   >
-                    {data.risks.length}
+                    {risks.length}
                   </span>
                 </button>
                 <button
@@ -993,11 +993,11 @@ export default function AnalysisPage() {
                 /* ── Risk Events Tab ── */
                 <div className="flex-1 overflow-y-auto px-4 py-3">
                   <div className="space-y-2.5">
-                    {data.risks
+                    {risks
                       .slice()
                       .sort((a, b) => b.risk - a.risk)
                       .map((risk, i) => {
-                        const origIdx = data.risks.indexOf(risk);
+                        const origIdx = risks.indexOf(risk);
                         return (
                           <RiskCard
                             key={origIdx}
@@ -1020,7 +1020,7 @@ export default function AnalysisPage() {
                       Recommendations
                     </h3>
                     <div className="space-y-2">
-                      {data.suggestions.map((s, i) => (
+                      {suggestions.map((s, i) => (
                         <motion.div
                           key={i}
                           initial={{ opacity: 0, x: 10 }}

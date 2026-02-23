@@ -39,106 +39,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import Navbar from "@/components/navbar";
-
-// ── Mock Data (hardcoded) ───────────────────────────────────────
-
-const PLAYER = {
-  playerId: 10,
-  name: "Arjun Mehta",
-  sport: "Cricket",
-  team: "Mumbai Strikers",
-  age: 24,
-  position: "Fast Bowler",
-  riskHistory: [
-    { date: "Feb 1", risk: 45, label: "Session 1" },
-    { date: "Feb 4", risk: 52, label: "Session 2" },
-    { date: "Feb 7", risk: 38, label: "Session 3" },
-    { date: "Feb 10", risk: 61, label: "Session 4" },
-    { date: "Feb 13", risk: 72, label: "Session 5" },
-    { date: "Feb 16", risk: 58, label: "Session 6" },
-    { date: "Feb 19", risk: 67, label: "Session 7" },
-    { date: "Feb 22", risk: 72, label: "Session 8" },
-  ],
-  pastMatches: [
-    {
-      date: "Feb 22, 2026",
-      opponent: "Delhi Chargers",
-      riskScore: 72,
-      status: "Completed",
-      highlights: "High knee valgus detected in 3rd over",
-    },
-    {
-      date: "Feb 18, 2026",
-      opponent: "Bangalore Hawks",
-      riskScore: 58,
-      status: "Completed",
-      highlights: "Shoulder strain during powerplay bowling",
-    },
-    {
-      date: "Feb 14, 2026",
-      opponent: "Chennai Kings",
-      riskScore: 61,
-      status: "Completed",
-      highlights: "Lower back stress warning in death overs",
-    },
-    {
-      date: "Feb 10, 2026",
-      opponent: "Kolkata Riders",
-      riskScore: 44,
-      status: "Completed",
-      highlights: "Good form maintained throughout",
-    },
-    {
-      date: "Feb 6, 2026",
-      opponent: "Hyderabad XI",
-      riskScore: 38,
-      status: "Completed",
-      highlights: "Excellent biomechanics, low risk session",
-    },
-  ],
-  drills: [
-    {
-      id: 1,
-      name: "Single-Leg Squat Stabilizer",
-      description:
-        "Strengthen VMO and glute medius to correct knee valgus pattern. Perform on wobble board for proprioceptive challenge.",
-      duration: "15 min",
-      frequency: "Daily",
-      targetArea: "Knee",
-      difficulty: "Intermediate",
-      riskReduction: 23,
-    },
-    {
-      id: 2,
-      name: "Rotator Cuff Band Series",
-      description:
-        "External/internal rotation with resistance band. Focus on eccentric control during release phase simulation.",
-      duration: "10 min",
-      frequency: "Pre-session",
-      targetArea: "Shoulder",
-      difficulty: "Beginner",
-      riskReduction: 15,
-    },
-    {
-      id: 3,
-      name: "Anti-Extension Core Circuit",
-      description:
-        "Dead bugs, pallof press, and bird-dogs to build lumbar stability during bowling run-up deceleration.",
-      duration: "20 min",
-      frequency: "3x/week",
-      targetArea: "Lower Back",
-      difficulty: "Advanced",
-      riskReduction: 19,
-    },
-  ],
-  injuryZones: [
-    { part: "Knee", risk: 85, trend: "increasing" },
-    { part: "Shoulder", risk: 45, trend: "stable" },
-    { part: "Lower Back", risk: 67, trend: "increasing" },
-    { part: "Ankle", risk: 32, trend: "decreasing" },
-    { part: "Hip", risk: 58, trend: "stable" },
-  ],
-};
+import { getPlayer } from "@/lib/api";
+import type { PlayerProfile } from "@/lib/api";
 
 // ── Custom Tooltip ──────────────────────────────────────────────
 
@@ -169,11 +71,21 @@ export default function PlayerDashboard() {
   const params = useParams();
   const playerId = params.playerId as string;
   const [isLoading, setIsLoading] = useState(true);
+  const [player, setPlayer] = useState<PlayerProfile | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 1200);
-    return () => clearTimeout(t);
-  }, []);
+    async function fetchPlayer() {
+      try {
+        const data = await getPlayer(parseInt(playerId) || 1);
+        setPlayer(data);
+      } catch (err) {
+        console.error("Failed to fetch player:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchPlayer();
+  }, [playerId]);
 
   const TrendIcon = ({ trend }: { trend: string }) =>
     trend === "increasing" ? (
@@ -207,6 +119,39 @@ export default function PlayerDashboard() {
     );
   }
 
+  if (!player) {
+    return (
+      <main className="min-h-screen">
+        <Navbar />
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold text-white mb-2">
+              No Data Yet
+            </h2>
+            <p className="text-white/40 text-sm mb-4">
+              Upload and analyze a video first to build your player profile.
+            </p>
+            <Link href="/">
+              <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                Upload a Video
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const latestRisk =
+    player.riskHistory.length > 0
+      ? player.riskHistory[player.riskHistory.length - 1].risk
+      : 0;
+  const bestSession =
+    player.riskHistory.length > 0
+      ? Math.min(...player.riskHistory.map((h) => h.risk))
+      : 0;
+  const highZones = player.injuryZones.filter((z) => z.risk >= 50).length;
+
   return (
     <main className="min-h-screen pb-12">
       <Navbar />
@@ -230,31 +175,31 @@ export default function PlayerDashboard() {
                 <User className="w-8 h-8 text-blue-400" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">{PLAYER.name}</h1>
+                <h1 className="text-2xl font-bold text-white">{player.name}</h1>
                 <div className="flex items-center gap-3 mt-1 text-sm text-white/40">
                   <span className="flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5" /> {PLAYER.team}
+                    <MapPin className="w-3.5 h-3.5" /> {player.team}
                   </span>
                   <span>·</span>
-                  <span>{PLAYER.position}</span>
+                  <span>{player.position}</span>
                   <span>·</span>
-                  <span>Age {PLAYER.age}</span>
+                  <span>Age {player.age}</span>
                   <Badge
                     variant="outline"
                     className="text-[10px] text-blue-400 border-blue-500/30 ml-1"
                   >
-                    {PLAYER.sport}
+                    {player.sport}
                   </Badge>
                 </div>
               </div>
             </div>
-            <Link href="/analysis/demo_cricket?sport=cricket">
+            <Link href="/">
               <Button
                 size="sm"
                 className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
               >
                 <Activity className="w-4 h-4" />
-                Latest Analysis
+                New Analysis
               </Button>
             </Link>
           </div>
@@ -270,23 +215,34 @@ export default function PlayerDashboard() {
           {[
             {
               label: "Current Risk",
-              value: "72%",
-              sub: "HIGH",
+              value: `${latestRisk}%`,
+              sub:
+                latestRisk >= 70 ? "HIGH" : latestRisk >= 40 ? "MEDIUM" : "LOW",
               icon: Flame,
-              color: "text-red-400",
-              bg: "bg-red-500/10 border-red-500/20",
+              color:
+                latestRisk >= 70
+                  ? "text-red-400"
+                  : latestRisk >= 40
+                    ? "text-amber-400"
+                    : "text-emerald-400",
+              bg:
+                latestRisk >= 70
+                  ? "bg-red-500/10 border-red-500/20"
+                  : latestRisk >= 40
+                    ? "bg-amber-500/10 border-amber-500/20"
+                    : "bg-emerald-500/10 border-emerald-500/20",
             },
             {
               label: "Sessions Tracked",
-              value: "8",
-              sub: "This month",
+              value: `${player.riskHistory.length}`,
+              sub: "Total",
               icon: Activity,
               color: "text-blue-400",
               bg: "bg-blue-500/10 border-blue-500/20",
             },
             {
               label: "Risk Zones",
-              value: "3",
+              value: `${highZones}`,
               sub: "Active alerts",
               icon: AlertTriangle,
               color: "text-amber-400",
@@ -294,8 +250,8 @@ export default function PlayerDashboard() {
             },
             {
               label: "Best Session",
-              value: "38%",
-              sub: "Feb 7",
+              value: `${bestSession}%`,
+              sub: "Lowest risk",
               icon: Shield,
               color: "text-emerald-400",
               bg: "bg-emerald-500/10 border-emerald-500/20",
@@ -335,7 +291,8 @@ export default function PlayerDashboard() {
                   Injury Risk Trend
                 </h2>
                 <p className="text-xs text-white/30 mt-0.5">
-                  Risk score progression over 8 sessions
+                  Risk score progression over {player.riskHistory.length}{" "}
+                  sessions
                 </p>
               </div>
               <div className="flex items-center gap-4 text-xs text-white/30">
@@ -354,7 +311,7 @@ export default function PlayerDashboard() {
               </div>
             </div>
             <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={PLAYER.riskHistory}>
+              <AreaChart data={player.riskHistory}>
                 <defs>
                   <linearGradient id="riskGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -446,7 +403,7 @@ export default function PlayerDashboard() {
               Current risk by body zone
             </p>
             <div className="space-y-4">
-              {PLAYER.injuryZones.map((zone) => {
+              {player.injuryZones.map((zone) => {
                 const color =
                   zone.risk >= 70
                     ? "text-red-400"
@@ -508,7 +465,7 @@ export default function PlayerDashboard() {
               <Calendar className="w-4 h-4 text-white/20" />
             </div>
             <div className="space-y-3">
-              {PLAYER.pastMatches.map((match, i) => {
+              {player.pastMatches.map((match, i) => {
                 const riskColor =
                   match.riskScore >= 70
                     ? "text-red-400 bg-red-500/10 border-red-500/20"
@@ -573,7 +530,7 @@ export default function PlayerDashboard() {
               <Dumbbell className="w-4 h-4 text-white/20" />
             </div>
             <div className="space-y-4">
-              {PLAYER.drills.map((drill, i) => {
+              {player.drills.map((drill, i) => {
                 const targetColor =
                   drill.targetArea === "Knee"
                     ? "text-red-400 border-red-500/30 bg-red-500/10"

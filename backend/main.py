@@ -30,8 +30,7 @@ OUTPUT_DIR = "outputs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Serve annotated videos
-app.mount("/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
+# Note: annotated videos served via /outputs/{video_id} endpoint below
 
 # ── YOLO Model (loaded once) ────────────────────────────────────
 
@@ -442,17 +441,29 @@ def process_video(video_id: str, filepath: str, sport: str = "general"):
 
         # Re-encode to H.264 for browser playback
         h264_path = os.path.join(OUTPUT_DIR, f"{video_id}.mp4")
-        ffmpeg_cmd = f'ffmpeg -y -i "{output_raw}" -vcodec libx264 -crf 23 -preset fast -an "{h264_path}" -loglevel error'
-        ffmpeg_ok = os.system(ffmpeg_cmd) == 0
+        import subprocess
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", output_raw,
+                 "-vcodec", "libx264", "-crf", "23", "-preset", "fast",
+                 "-pix_fmt", "yuv420p",  # Ensure compatibility with all browsers
+                 "-movflags", "+faststart",  # Enable streaming / progressive playback
+                 "-an", h264_path],
+                check=True, capture_output=True, timeout=600
+            )
+            ffmpeg_ok = os.path.exists(h264_path) and os.path.getsize(h264_path) > 0
+        except Exception as e:
+            print(f"⚠️ ffmpeg re-encode failed: {e}")
+            ffmpeg_ok = False
 
-        if ffmpeg_ok and os.path.exists(h264_path) and os.path.getsize(h264_path) > 0:
+        if ffmpeg_ok:
             os.remove(output_raw)
-            video_url = f"/outputs/{video_id}.mp4"
         else:
-            # Fallback: use mp4v (may not play in all browsers)
+            # Fallback: rename raw file (mp4v — may not play in all browsers)
+            print("⚠️ Using mp4v fallback — install ffmpeg for best browser compatibility")
             if os.path.exists(output_raw):
                 os.rename(output_raw, h264_path)
-            video_url = f"/outputs/{video_id}.mp4"
+        video_url = f"/outputs/{video_id}.mp4"
 
         print(f"✅ Video {video_id} processed: {frame_count} frames, overall risk {overall_risk}%, {len(unique_events)} events")
 
@@ -682,6 +693,22 @@ def get_player(player_id: int):
         "drills": drills,
         "injuryZones": injury_zones,
     }
+
+
+@app.get("/outputs/{video_id}.mp4")
+def get_annotated_video(video_id: str):
+    """Serve the annotated/processed video with proper headers."""
+    path = os.path.join(OUTPUT_DIR, f"{video_id}.mp4")
+    if not os.path.exists(path):
+        raise HTTPException(404, "Annotated video not found")
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+        },
+    )
 
 
 @app.get("/video/{video_id}")

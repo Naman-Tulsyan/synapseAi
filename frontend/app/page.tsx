@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/navbar";
+import { uploadVideo } from "@/lib/api";
 
 const DEMO_SPORTS = [
   {
@@ -96,15 +97,13 @@ export default function Home() {
   const handleUpload = async () => {
     if (!uploadedFile) return;
     setIsProcessing(true);
-    await new Promise((r) => setTimeout(r, 2000));
-    const videoId = `upload_${Date.now().toString(36)}`;
-    router.push(`/analysis/${videoId}?sport=cricket`);
-  };
-
-  const handleDemo = async (sport: string) => {
-    setIsProcessing(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    router.push(`/analysis/demo_${sport}?sport=${sport}`);
+    try {
+      const result = await uploadVideo(uploadedFile);
+      router.push(`/analysis/${result.videoId}`);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -263,35 +262,6 @@ export default function Home() {
               </motion.div>
             )}
           </AnimatePresence>
-        </motion.div>
-
-        {/* Demo Sport Buttons */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.6 }}
-          className="max-w-2xl mx-auto mb-20"
-        >
-          <p className="text-center text-white/30 text-sm mb-4 uppercase tracking-widest">
-            Or try a demo
-          </p>
-          <div className="grid grid-cols-3 gap-4">
-            {DEMO_SPORTS.map((sport, i) => (
-              <motion.button
-                key={sport.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 + i * 0.1 }}
-                onClick={() => handleDemo(sport.id)}
-                disabled={isProcessing}
-                className={`glass-card glass-card-hover rounded-xl p-5 text-center transition-all duration-300 group disabled:opacity-50 ${sport.border}`}
-              >
-                <span className="text-3xl block mb-2">{sport.emoji}</span>
-                <p className="text-white font-medium text-sm">{sport.label}</p>
-                <p className="text-white/30 text-xs mt-1">{sport.desc}</p>
-              </motion.button>
-            ))}
-          </div>
         </motion.div>
 
         {/* Features Grid */}
