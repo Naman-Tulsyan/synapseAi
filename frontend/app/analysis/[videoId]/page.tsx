@@ -39,16 +39,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import Navbar from "@/components/navbar";
-import {
-  getAnalysis,
-  sendChat,
-  getAnnotatedVideoUrl,
-} from "@/lib/api";
-import type {
-  AnalysisData,
-  RiskEntry,
-  TimestampSnapshot,
-} from "@/lib/api";
+import { getAnalysis, sendChat, getAnnotatedVideoUrl } from "@/lib/api";
+import type { AnalysisData, RiskEntry, TimestampSnapshot } from "@/lib/api";
+
+// ── Brand Palette ───────────────────────────────────────────────
+const C = {
+  cyan: "#05F3FF",
+  green: "#00FF87",
+  yellow: "#EAFF00",
+  purple: "#5D3C81",
+  red: "#ff4d6d",
+} as const;
+
+function riskHex(r: number) {
+  return r >= 70 ? C.red : r >= 40 ? C.yellow : C.green;
+}
 
 // ── Circular Risk Gauge ─────────────────────────────────────────
 
@@ -66,10 +71,10 @@ function RiskGauge({
   const offset = circumference - (value / 100) * circumference;
   const color =
     value >= 70
-      ? { stroke: "#ef4444", glow: "rgba(239,68,68,0.3)" }
+      ? { stroke: C.red, glow: "rgba(255,77,109,0.35)" }
       : value >= 40
-        ? { stroke: "#f59e0b", glow: "rgba(245,158,11,0.3)" }
-        : { stroke: "#10b981", glow: "rgba(16,185,129,0.3)" };
+        ? { stroke: C.yellow, glow: "rgba(234,255,0,0.30)" }
+        : { stroke: C.green, glow: "rgba(0,255,135,0.30)" };
 
   return (
     <div className="relative" style={{ width: size, height: size }}>
@@ -132,17 +137,17 @@ function StatPill({
     <div
       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors ${
         accent
-          ? "bg-blue-500/[0.08] border-blue-500/20"
+          ? "bg-cyan-400/[0.08] border-cyan-400/20"
           : "bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]"
       }`}
     >
       <Icon
-        className={`w-3.5 h-3.5 ${accent ? "text-blue-400" : "text-white/30"}`}
+        className={`w-3.5 h-3.5 ${accent ? "text-cyan-400" : "text-white/30"}`}
       />
       <div className="flex flex-col">
         <span className="text-[10px] text-white/30 leading-none">{label}</span>
         <span
-          className={`text-xs font-medium leading-tight ${accent ? "text-blue-300" : "text-white/70"}`}
+          className={`text-xs font-medium leading-tight ${accent ? "text-cyan-300" : "text-white/70"}`}
         >
           {value}
         </span>
@@ -173,12 +178,12 @@ function ChatBubble({ msg }: { msg: ChatMsg }) {
       <div
         className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
           isAI
-            ? "bg-gradient-to-br from-blue-500/20 to-indigo-500/20 ring-1 ring-blue-500/20"
+            ? "bg-gradient-to-br from-purple-600/20 to-cyan-500/20 ring-1 ring-cyan-500/20"
             : "bg-gradient-to-br from-white/10 to-white/5 ring-1 ring-white/10"
         }`}
       >
         {isAI ? (
-          <Bot className="w-3.5 h-3.5 text-blue-400" />
+          <Bot className="w-3.5 h-3.5 text-cyan-400" />
         ) : (
           <User className="w-3.5 h-3.5 text-white/60" />
         )}
@@ -188,14 +193,14 @@ function ChatBubble({ msg }: { msg: ChatMsg }) {
           className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
             isAI
               ? "bg-white/[0.04] text-white/80 border border-white/[0.06] rounded-tl-md"
-              : "bg-blue-600/15 text-blue-50/90 border border-blue-500/15 rounded-tr-md"
+              : "bg-[#5D3C81]/15 text-white/90 border border-[#5D3C81]/20 rounded-tr-md"
           }`}
         >
           <div className="whitespace-pre-wrap">{msg.text}</div>
         </div>
         {isAI && msg.confidence && (
           <div className="flex items-center gap-2 mt-1 px-1 text-[10px] text-white/25">
-            <Sparkles className="w-2.5 h-2.5 text-blue-400/40" />
+            <Sparkles className="w-2.5 h-2.5 text-cyan-400/40" />
             <span>{(msg.confidence * 100).toFixed(0)}% confidence</span>
             {msg.relatedTimestamp && (
               <>
@@ -244,21 +249,21 @@ function RiskCard({
       icon: AlertTriangle,
     },
     MEDIUM: {
-      gradient: "from-amber-500/10 to-amber-500/[0.02]",
-      border: "border-amber-500/20",
-      activeBorder: "border-amber-500/40",
-      text: "text-amber-400",
-      badge: "bg-amber-500/15 text-amber-400 border-amber-500/25",
-      bar: "bg-gradient-to-r from-amber-500 to-amber-400",
+      gradient: "from-yellow-400/10 to-yellow-400/[0.02]",
+      border: "border-yellow-400/20",
+      activeBorder: "border-yellow-400/40",
+      text: "text-yellow-300",
+      badge: "bg-yellow-400/15 text-yellow-300 border-yellow-400/25",
+      bar: "bg-gradient-to-r from-yellow-400 to-yellow-300",
       icon: Target,
     },
     LOW: {
-      gradient: "from-emerald-500/8 to-emerald-500/[0.01]",
-      border: "border-emerald-500/15",
-      activeBorder: "border-emerald-500/30",
-      text: "text-emerald-400",
-      badge: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
-      bar: "bg-gradient-to-r from-emerald-500 to-emerald-400",
+      gradient: "from-green-400/8 to-green-400/[0.01]",
+      border: "border-green-400/15",
+      activeBorder: "border-green-400/30",
+      text: "text-green-400",
+      badge: "bg-green-400/15 text-green-400 border-green-400/25",
+      bar: "bg-gradient-to-r from-green-400 to-green-300",
       icon: CheckCircle2,
     },
   };
@@ -274,7 +279,7 @@ function RiskCard({
       transition={{ delay: index * 0.04, duration: 0.3 }}
       className={`w-full text-left rounded-xl border transition-all duration-200 overflow-hidden group ${
         isActive
-          ? `${c.activeBorder} ring-1 ring-blue-500/30 shadow-lg shadow-black/30`
+          ? `${c.activeBorder} ring-1 ring-cyan-400/30 shadow-lg shadow-black/30`
           : `${c.border} hover:border-white/15`
       }`}
     >
@@ -321,7 +326,11 @@ function RiskCard({
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: `${risk.risk}%` }}
-              transition={{ duration: 0.8, delay: index * 0.04, ease: "easeOut" }}
+              transition={{
+                duration: 0.8,
+                delay: index * 0.04,
+                ease: "easeOut",
+              }}
               className={`h-full rounded-full ${c.bar}`}
             />
           </div>
@@ -354,16 +363,16 @@ function TimelineCard({
     snapshot.compositeRisk >= 60
       ? "text-red-400"
       : snapshot.compositeRisk >= 30
-        ? "text-amber-400"
-        : "text-emerald-400";
+        ? "text-yellow-300"
+        : "text-green-400";
   const dotColor =
     snapshot.compositeRisk >= 60
       ? "bg-red-500"
       : snapshot.compositeRisk >= 30
-        ? "bg-amber-500"
-        : "bg-emerald-500";
+        ? "bg-yellow-400"
+        : "bg-green-400";
   const borderColor = isActive
-    ? "border-blue-500/30 ring-1 ring-blue-500/20"
+    ? "border-cyan-400/30 ring-1 ring-cyan-400/20"
     : "border-white/[0.05] hover:border-white/10";
 
   return (
@@ -404,8 +413,8 @@ function TimelineCard({
                     f.risk >= 60
                       ? "bg-red-500/60"
                       : f.risk >= 30
-                        ? "bg-amber-500/50"
-                        : "bg-emerald-500/40"
+                        ? "bg-yellow-400/50"
+                        : "bg-green-400/40"
                   }`}
                 />
                 <span className="text-[11px] text-white/50 flex-1 truncate capitalize">
@@ -416,8 +425,8 @@ function TimelineCard({
                     f.risk >= 60
                       ? "text-red-400/70"
                       : f.risk >= 30
-                        ? "text-amber-400/70"
-                        : "text-emerald-400/60"
+                        ? "text-yellow-300/70"
+                        : "text-green-400/60"
                   }`}
                 >
                   {f.risk}%
@@ -467,8 +476,8 @@ function RiskSparkline({
             snap.compositeRisk >= 60
               ? "bg-red-500"
               : snap.compositeRisk >= 30
-                ? "bg-amber-500"
-                : "bg-emerald-500";
+                ? "bg-yellow-400"
+                : "bg-green-400";
           return (
             <button
               key={i}
@@ -584,7 +593,7 @@ function PoseOverlay({
             y1={p1.y}
             x2={p2.x}
             y2={p2.y}
-            stroke={isHighlighted ? "#ef4444" : "#3b82f6"}
+            stroke={isHighlighted ? C.red : C.cyan}
             strokeWidth={isHighlighted ? 0.006 : 0.003}
             strokeOpacity={isHighlighted ? 0.9 : 0.5}
           />
@@ -598,7 +607,7 @@ function PoseOverlay({
             cx={p.x}
             cy={p.y}
             r={isHighlighted ? 0.012 : 0.007}
-            fill={isHighlighted ? "#ef4444" : "#3b82f6"}
+            fill={isHighlighted ? C.red : C.cyan}
             opacity={isHighlighted ? 1 : 0.7}
           >
             {isHighlighted && (
@@ -623,10 +632,10 @@ function PoseOverlay({
             fill="rgba(0,0,0,0.7)"
             stroke={
               activeRisk.severity === "HIGH"
-                ? "#ef4444"
+                ? C.red
                 : activeRisk.severity === "MEDIUM"
-                  ? "#f59e0b"
-                  : "#10b981"
+                  ? C.yellow
+                  : C.green
             }
             strokeWidth={0.002}
           />
@@ -890,7 +899,7 @@ export default function AnalysisPage() {
               <div className="relative">
                 <div className="w-20 h-20 rounded-full border-2 border-white/[0.06]" />
                 <motion.div
-                  className="absolute inset-0 w-20 h-20 rounded-full border-2 border-transparent border-t-blue-500 border-r-blue-500/30"
+                  className="absolute inset-0 w-20 h-20 rounded-full border-2 border-transparent border-t-cyan-400 border-r-cyan-400/30"
                   animate={{ rotate: 360 }}
                   transition={{
                     duration: 1.2,
@@ -899,7 +908,7 @@ export default function AnalysisPage() {
                   }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <Activity className="w-7 h-7 text-blue-400/60" />
+                  <Activity className="w-7 h-7 text-cyan-400/60" />
                 </div>
               </div>
             </div>
@@ -917,13 +926,16 @@ export default function AnalysisPage() {
             <div className="mb-8">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-white/40">Progress</span>
-                <span className="text-xs text-blue-400 font-mono">
+                <span className="text-xs font-mono" style={{ color: C.cyan }}>
                   {processingProgress}%
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                 <motion.div
-                  className="h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400"
+                  className="h-full rounded-full"
+                  style={{
+                    background: `linear-gradient(90deg, ${C.cyan}, ${C.green})`,
+                  }}
                   initial={{ width: 0 }}
                   animate={{ width: `${processingProgress}%` }}
                   transition={{ duration: 0.5, ease: "easeOut" }}
@@ -934,8 +946,7 @@ export default function AnalysisPage() {
             {/* Steps */}
             <div className="space-y-3">
               {steps.map((step, i) => {
-                const isStepActive =
-                  i === Math.floor(processingProgress / 25);
+                const isStepActive = i === Math.floor(processingProgress / 25);
                 const isDone = i < Math.floor(processingProgress / 25);
                 const StepIcon = step.icon;
                 return (
@@ -946,27 +957,27 @@ export default function AnalysisPage() {
                     transition={{ delay: i * 0.15 }}
                     className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
                       isStepActive
-                        ? "bg-blue-500/[0.06] border-blue-500/20"
+                        ? "bg-cyan-400/[0.06] border-cyan-400/20"
                         : isDone
-                          ? "bg-emerald-500/[0.04] border-emerald-500/10"
+                          ? "bg-green-400/[0.04] border-green-400/10"
                           : "bg-white/[0.02] border-white/[0.04]"
                     }`}
                   >
                     <div
                       className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                         isStepActive
-                          ? "bg-blue-500/15"
+                          ? "bg-cyan-400/15"
                           : isDone
-                            ? "bg-emerald-500/15"
+                            ? "bg-green-400/15"
                             : "bg-white/[0.04]"
                       }`}
                     >
                       {isDone ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <CheckCircle2 className="w-4 h-4 text-green-400" />
                       ) : (
                         <StepIcon
                           className={`w-4 h-4 ${
-                            isStepActive ? "text-blue-400" : "text-white/20"
+                            isStepActive ? "text-cyan-400" : "text-white/20"
                           }`}
                         />
                       )}
@@ -976,7 +987,7 @@ export default function AnalysisPage() {
                         isStepActive
                           ? "text-white/80"
                           : isDone
-                            ? "text-emerald-400/70"
+                            ? "text-green-400/70"
                             : "text-white/25"
                       }`}
                     >
@@ -985,16 +996,22 @@ export default function AnalysisPage() {
                     {isStepActive && (
                       <div className="flex gap-1">
                         <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce"
-                          style={{ animationDelay: "0ms" }}
+                          className="w-1.5 h-1.5 rounded-full animate-bounce"
+                          style={{ background: C.cyan, animationDelay: "0ms" }}
                         />
                         <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce"
-                          style={{ animationDelay: "150ms" }}
+                          className="w-1.5 h-1.5 rounded-full animate-bounce"
+                          style={{
+                            background: C.cyan,
+                            animationDelay: "150ms",
+                          }}
                         />
                         <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce"
-                          style={{ animationDelay: "300ms" }}
+                          className="w-1.5 h-1.5 rounded-full animate-bounce"
+                          style={{
+                            background: C.cyan,
+                            animationDelay: "300ms",
+                          }}
                         />
                       </div>
                     )}
@@ -1033,7 +1050,13 @@ export default function AnalysisPage() {
               {data?.error || "Something went wrong during processing"}
             </p>
             <Link href="/">
-              <Button className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-6">
+              <Button
+                className="text-white rounded-xl px-6"
+                style={{
+                  background: `linear-gradient(135deg, ${C.cyan}, ${C.green})`,
+                  color: "#06040f",
+                }}
+              >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Try Again
               </Button>
@@ -1069,7 +1092,7 @@ export default function AnalysisPage() {
       label: "Timeline",
       icon: Timer,
       count: data.timestampedAnalysis?.length || 0,
-      countColor: "text-blue-400 bg-blue-500/15",
+      countColor: "text-cyan-400 bg-cyan-400/15",
     },
     {
       id: "chat" as const,
@@ -1105,7 +1128,8 @@ export default function AnalysisPage() {
                 </h1>
                 <Badge
                   variant="outline"
-                  className="text-[10px] text-blue-400 border-blue-500/25 bg-blue-500/[0.06] px-2 py-0"
+                  className="text-[10px] border-cyan-400/25 bg-cyan-400/[0.06] px-2 py-0"
+                  style={{ color: C.cyan }}
                 >
                   {sport.toUpperCase()}
                 </Badge>
@@ -1169,14 +1193,10 @@ export default function AnalysisPage() {
                     <div className="w-20 h-20 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mx-auto mb-3">
                       <Activity className="w-10 h-10 text-blue-500/20" />
                     </div>
-                    <p className="text-white/20 text-sm">
-                      Preparing video...
-                    </p>
+                    <p className="text-white/20 text-sm">Preparing video...</p>
                   </div>
                 </div>
               )}
-
-              
 
               {/* Video Controls - Bottom Overlay */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-16 pb-3 px-4">
@@ -1191,8 +1211,9 @@ export default function AnalysisPage() {
                   {/* Track */}
                   <div className="absolute top-3 left-0 right-0 h-1.5 bg-white/[0.08] rounded-full overflow-hidden group-hover:h-2.5 transition-all duration-200">
                     <div
-                      className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-100 relative"
+                      className="h-full rounded-full transition-all duration-100 relative"
                       style={{
+                        background: `linear-gradient(90deg, ${C.cyan}aa, ${C.cyan})`,
                         width: `${(currentTime / totalDuration) * 100}%`,
                       }}
                     >
@@ -1219,11 +1240,12 @@ export default function AnalysisPage() {
                       >
                         <div
                           className={`w-1.5 h-4 rounded-full transition-transform ${
-                            risk.severity === "HIGH" || risk.severity === "CRITICAL"
+                            risk.severity === "HIGH" ||
+                            risk.severity === "CRITICAL"
                               ? "bg-red-500"
                               : risk.severity === "MEDIUM"
-                                ? "bg-amber-500"
-                                : "bg-emerald-500"
+                                ? "bg-yellow-400"
+                                : "bg-green-400"
                           } ${activeRiskIdx === i ? "scale-150 ring-1 ring-white/40" : "hover:scale-125"}`}
                         />
                       </button>
@@ -1286,13 +1308,10 @@ export default function AnalysisPage() {
 
                   <span className="text-[11px] text-white/40 font-mono min-w-[80px] ml-1">
                     {formatTime(currentTime)}{" "}
-                    <span className="text-white/20">/</span>{" "}
-                    {data.duration}
+                    <span className="text-white/20">/</span> {data.duration}
                   </span>
 
                   <div className="flex-1" />
-
-                 
 
                   <Button
                     size="sm"
@@ -1336,8 +1355,8 @@ export default function AnalysisPage() {
                         activeRisk.severity === "CRITICAL"
                           ? "bg-red-500/10"
                           : activeRisk.severity === "MEDIUM"
-                            ? "bg-amber-500/10"
-                            : "bg-emerald-500/10"
+                            ? "bg-yellow-400/10"
+                            : "bg-green-400/10"
                       }`}
                     >
                       <AlertTriangle
@@ -1346,8 +1365,8 @@ export default function AnalysisPage() {
                           activeRisk.severity === "CRITICAL"
                             ? "text-red-400"
                             : activeRisk.severity === "MEDIUM"
-                              ? "text-amber-400"
-                              : "text-emerald-400"
+                              ? "text-yellow-300"
+                              : "text-green-400"
                         }`}
                       />
                     </div>
@@ -1376,8 +1395,8 @@ export default function AnalysisPage() {
                         activeRisk.severity === "CRITICAL"
                           ? "text-red-400 border-red-500/25"
                           : activeRisk.severity === "MEDIUM"
-                            ? "text-amber-400 border-amber-500/25"
-                            : "text-emerald-400 border-emerald-500/25"
+                            ? "text-yellow-300 border-yellow-400/25"
+                            : "text-green-400 border-green-400/25"
                       }`}
                     >
                       {activeRisk.risk}% — {activeRisk.severity}
@@ -1393,7 +1412,11 @@ export default function AnalysisPage() {
             {/* Risk Gauge Section */}
             <div className="p-4 border-b border-white/[0.05]">
               <div className="flex items-center gap-4">
-                <RiskGauge value={data.overallRisk ?? 0} size={100} strokeWidth={8} />
+                <RiskGauge
+                  value={data.overallRisk ?? 0}
+                  size={100}
+                  strokeWidth={8}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <Badge
@@ -1401,8 +1424,8 @@ export default function AnalysisPage() {
                         (data.overallRisk ?? 0) >= 70
                           ? "bg-red-500/15 text-red-400 border-red-500/25"
                           : (data.overallRisk ?? 0) >= 40
-                            ? "bg-amber-500/15 text-amber-400 border-amber-500/25"
-                            : "bg-emerald-500/15 text-emerald-400 border-emerald-500/25"
+                            ? "bg-yellow-400/15 text-yellow-300 border-yellow-400/25"
+                            : "bg-green-400/15 text-green-400 border-green-400/25"
                       }`}
                       variant="outline"
                     >
@@ -1462,7 +1485,8 @@ export default function AnalysisPage() {
                       {isTabActive && (
                         <motion.div
                           layoutId="tab-indicator"
-                          className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-blue-500"
+                          className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full"
+                          style={{ background: C.cyan }}
                           transition={{
                             type: "spring",
                             stiffness: 400,
@@ -1521,8 +1545,8 @@ export default function AnalysisPage() {
                     {suggestions.length > 0 && (
                       <div className="mt-6 mb-4">
                         <div className="flex items-center gap-2 mb-3">
-                          <div className="w-6 h-6 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                            <Heart className="w-3 h-3 text-emerald-400" />
+                          <div className="w-6 h-6 rounded-lg bg-green-400/10 flex items-center justify-center">
+                            <Heart className="w-3 h-3 text-green-400" />
                           </div>
                           <span className="text-xs text-white/50 font-medium">
                             Recommendations
@@ -1535,9 +1559,9 @@ export default function AnalysisPage() {
                               initial={{ opacity: 0, x: 8 }}
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: 0.3 + i * 0.06 }}
-                              className="flex gap-2 items-start px-3 py-2.5 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/[0.08] hover:border-emerald-500/15 transition-colors"
+                              className="flex gap-2 items-start px-3 py-2.5 rounded-xl bg-green-400/[0.04] border border-green-400/[0.08] hover:border-green-400/15 transition-colors"
                             >
-                              <ChevronRight className="w-3 h-3 text-emerald-400/60 mt-0.5 shrink-0" />
+                              <ChevronRight className="w-3 h-3 text-green-400/60 mt-0.5 shrink-0" />
                               <span className="text-[11px] text-white/50 leading-relaxed">
                                 {s}
                               </span>
@@ -1625,21 +1649,30 @@ export default function AnalysisPage() {
                             animate={{ opacity: 1 }}
                             className="flex items-center gap-2.5"
                           >
-                            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 flex items-center justify-center ring-1 ring-blue-500/20">
-                              <Bot className="w-3.5 h-3.5 text-blue-400" />
+                            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-600/20 to-cyan-500/20 flex items-center justify-center ring-1 ring-cyan-500/20">
+                              <Bot className="w-3.5 h-3.5 text-cyan-400" />
                             </div>
                             <div className="flex gap-1 py-2.5 px-3.5 rounded-2xl rounded-tl-md bg-white/[0.04] border border-white/[0.06]">
                               <span
-                                className="w-1.5 h-1.5 rounded-full bg-blue-400/50 animate-bounce"
-                                style={{ animationDelay: "0ms" }}
+                                className="w-1.5 h-1.5 rounded-full animate-bounce"
+                                style={{
+                                  background: `${C.cyan}80`,
+                                  animationDelay: "0ms",
+                                }}
                               />
                               <span
-                                className="w-1.5 h-1.5 rounded-full bg-blue-400/50 animate-bounce"
-                                style={{ animationDelay: "150ms" }}
+                                className="w-1.5 h-1.5 rounded-full animate-bounce"
+                                style={{
+                                  background: `${C.cyan}80`,
+                                  animationDelay: "150ms",
+                                }}
                               />
                               <span
-                                className="w-1.5 h-1.5 rounded-full bg-blue-400/50 animate-bounce"
-                                style={{ animationDelay: "300ms" }}
+                                className="w-1.5 h-1.5 rounded-full animate-bounce"
+                                style={{
+                                  background: `${C.cyan}80`,
+                                  animationDelay: "300ms",
+                                }}
                               />
                             </div>
                           </motion.div>
@@ -1675,16 +1708,21 @@ export default function AnalysisPage() {
                             e.key === "Enter" && handleSendChat()
                           }
                           placeholder="Ask about any risk or body part..."
-                          className="bg-white/[0.04] border-white/[0.06] text-white text-sm placeholder:text-white/20 focus-visible:ring-blue-500/25 rounded-xl h-9"
+                          className="bg-white/[0.04] border-white/[0.06] text-white text-sm placeholder:text-white/20 focus-visible:ring-cyan-400/25 rounded-xl h-9"
                         />
-                        <Button
-                          size="sm"
+                        <button
                           onClick={handleSendChat}
                           disabled={!chatInput.trim() || isTyping}
-                          className="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded-xl h-9 disabled:opacity-20 transition-all"
+                          className="px-3 rounded-xl h-9 disabled:opacity-20 transition-all flex items-center justify-center"
+                          style={{
+                            background: `linear-gradient(135deg, ${C.cyan}, ${C.green})`,
+                          }}
                         >
-                          <Send className="w-3.5 h-3.5" />
-                        </Button>
+                          <Send
+                            className="w-3.5 h-3.5"
+                            style={{ color: "#06040f" }}
+                          />
+                        </button>
                       </div>
                     </div>
                   </motion.div>
