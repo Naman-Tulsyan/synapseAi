@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -10,6 +10,9 @@ import shutil
 import math
 import cv2
 import numpy as np
+import base64
+import json
+import time
 from ultralytics import YOLO
 from collections import deque
 
@@ -768,3 +771,275 @@ def get_video(video_id: str):
     if not os.path.exists(path):
         raise HTTPException(404, "Video not found")
     return FileResponse(path, media_type="video/mp4")
+
+
+# ── Camera Session Store ─────────────────────────────────────────
+camera_sessions: dict = {}
+
+
+class CameraSessionSave(BaseModel):
+    sessionId: str
+    riskScores: list[int]
+    riskTimeline: list[int]
+    events: list[dict]
+    duration: float
+    totalFrames: int
+
+
+@app.post("/camera/save")
+def save_camera_session(session: CameraSessionSave):
+    """Save a completed camera session so it can be viewed on the analysis page."""
+    scores = np.array(session.riskScores) if session.riskScores else np.array([0])
+    overall_risk = int(scores.mean())
+    peak_risk = int(scores.max())
+    severity = risk_severity(overall_risk)
+    mins = int(session.duration // 60)
+    secs = int(session.duration % 60)
+
+    suggestions = generate_suggestions(session.events, float(scores.mean()))
+
+    # Build timestamped analysis from timeline (1 entry per second)
+    timestamped = []
+    for i, score in enumerate(session.riskTimeline):
+        timestamped.append({
+            "timestamp": f"{i // 60}:{i % 60:02d}",
+            "second": i,
+            "frame": i * 30,
+            "compositeRisk": score,
+            "severity": risk_severity(score),
+            "factors": [],
+        })
+
+    analyses[session.sessionId] = {
+        "status": "done",
+        "videoId": session.sessionId,
+        "sport": "general",
+        "playerName": "Athlete",
+        "overallRisk": overall_risk,
+        "overallSeverity": severity,
+        "duration": f"{mins}:{secs:02d}",
+        "fps": 30,
+        "risks": session.events[:20],
+        "pose_keypoints": [],
+        "suggestions": suggestions,
+        "riskTimeline": [int(s) for s in session.riskScores],
+        "timestampedAnalysis": timestamped,
+        "annotatedVideoUrl": None,
+        "totalFrames": session.totalFrames,
+        "peakRisk": peak_risk,
+    }
+    return {"status": "saved", "videoId": session.sessionId}
+
+
+# ── WebSocket Camera Endpoint ────────────────────────────────────
+
+@app.websocket("/ws/camera")
+async def websocket_camera(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time camera analysis.
+    Receives base64-encoded JPEG frames, returns analysis JSON.
+    """
+    await websocket.accept()
+
+    session_id = uuid.uuid4().hex[:8]
+    all_scores: list[int] = []
+    risk_events: list[dict] = []
+    factor_states: dict = {}
+    frame_count = 0
+    start_time = time.time()
+    fps_times: deque = deque(maxlen=30)
+
+    # Per-second tracking for timeline
+    per_second_scores: dict[int, list[int]] = {}
+
+    try:
+        # Send session ID to client
+        await websocket.send_json({"type": "session_start", "sessionId": session_id})
+
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+
+            if msg.get("type") == "stop":
+                break
+
+            if msg.get("type") != "frame":
+                continue
+
+            # Decode base64 JPEG frame
+            frame_b64 = msg["data"]
+            frame_bytes = base64.b64decode(frame_b64)
+            nparr = np.frombuffer(frame_bytes, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+            if frame is None:
+                continue
+
+            frame_count += 1
+            fps_times.append(time.time())
+            live_fps = (len(fps_times) / (fps_times[-1] - fps_times[0] + 1e-6)
+                        if len(fps_times) > 1 else 0)
+
+            # Run YOLO
+            results = model(frame, verbose=False)
+            annotated = frame.copy()
+            frame_max_risk = 0
+            frame_risks: dict = {}
+            frame_details: dict = {}
+
+            for r in results:
+                if r.keypoints is None or r.keypoints.xy is None:
+                    continue
+
+                annotated = r.plot(img=annotated, kpt_radius=4, line_width=2)
+                keypoints_np = r.keypoints.xy.cpu().numpy()
+                confs_np = r.keypoints.conf.cpu().numpy()
+
+                for person_kp, person_conf in zip(keypoints_np, confs_np):
+                    risks, composite, details = analyze_person(person_kp, person_conf)
+                    if composite > frame_max_risk:
+                        frame_max_risk = composite
+                        frame_risks = risks
+                        frame_details = details
+
+            all_scores.append(frame_max_risk)
+
+            # Track per-second for timeline
+            elapsed = time.time() - start_time
+            current_second = int(elapsed)
+            if current_second not in per_second_scores:
+                per_second_scores[current_second] = []
+            per_second_scores[current_second].append(frame_max_risk)
+
+            # Draw HUD on annotated frame
+            h, w = annotated.shape[:2]
+            overlay = annotated.copy()
+            cv2.rectangle(overlay, (10, 10), (280, 65), (20, 20, 20), -1)
+            cv2.addWeighted(overlay, 0.6, annotated, 0.4, 0, annotated)
+            color = risk_color_bgr(frame_max_risk)
+            cv2.putText(annotated, f"Risk: {frame_max_risk}% - {risk_severity(frame_max_risk)}",
+                        (18, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+            # Event detection
+            for factor, risk_val in frame_risks.items():
+                if factor not in factor_states:
+                    factor_states[factor] = {"active": False, "peak_risk": 0, "peak_frame": 0}
+                state = factor_states[factor]
+
+                if risk_val >= 30 and not state["active"]:
+                    state["active"] = True
+                    state["peak_risk"] = risk_val
+                    state["peak_frame"] = frame_count
+                elif risk_val >= 30 and state["active"]:
+                    if risk_val > state["peak_risk"]:
+                        state["peak_risk"] = risk_val
+                        state["peak_frame"] = frame_count
+                elif risk_val < 30 and state["active"]:
+                    state["active"] = False
+                    risk_events.append({
+                        "timestamp": f"{int(elapsed // 60)}:{int(elapsed % 60):02d}",
+                        "frame": state["peak_frame"],
+                        "risk": state["peak_risk"],
+                        "part": FACTOR_TO_PART.get(factor, factor),
+                        "severity": risk_severity(state["peak_risk"]),
+                        "description": FACTOR_DESCRIPTIONS.get(factor, f"Risk in {factor}"),
+                    })
+
+            # Encode annotated frame to base64 JPEG
+            _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            annotated_b64 = base64.b64encode(buffer).decode('utf-8')
+
+            # Build risk breakdown
+            breakdown = {}
+            labels = {
+                "L_ACL": "L Knee (ACL)", "R_ACL": "R Knee (ACL)",
+                "L_Hip": "L Hip Flex", "R_Hip": "R Hip Flex",
+                "Trunk": "Trunk Lean", "Shoulder_Asym": "Shoulder Asym",
+                "Hip_Asym": "Hip Asym",
+            }
+            for k, label in labels.items():
+                if k in frame_risks:
+                    breakdown[label] = frame_risks[k]
+
+            avg_risk = int(np.mean(all_scores)) if all_scores else 0
+            peak_risk = max(all_scores) if all_scores else 0
+
+            await websocket.send_json({
+                "type": "analysis",
+                "frame": frame_count,
+                "risk": frame_max_risk,
+                "severity": risk_severity(frame_max_risk),
+                "breakdown": breakdown,
+                "avgRisk": avg_risk,
+                "peakRisk": peak_risk,
+                "fps": round(live_fps, 1),
+                "elapsed": round(elapsed, 1),
+                "annotatedFrame": annotated_b64,
+            })
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        # Flush active events
+        elapsed = time.time() - start_time
+        for factor, state in factor_states.items():
+            if state["active"] and state["peak_risk"] >= 30:
+                risk_events.append({
+                    "timestamp": f"{int(elapsed // 60)}:{int(elapsed % 60):02d}",
+                    "frame": state["peak_frame"],
+                    "risk": state["peak_risk"],
+                    "part": FACTOR_TO_PART.get(factor, factor),
+                    "severity": risk_severity(state["peak_risk"]),
+                    "description": FACTOR_DESCRIPTIONS.get(factor, f"Risk in {factor}"),
+                })
+
+        # Build per-second timeline
+        timeline = []
+        for sec in sorted(per_second_scores.keys()):
+            timeline.append(int(np.mean(per_second_scores[sec])))
+
+        # Auto-save session
+        if all_scores:
+            scores_arr = np.array(all_scores)
+            overall_risk = int(scores_arr.mean())
+            peak_risk = int(scores_arr.max())
+
+            mins = int(elapsed // 60)
+            secs = int(elapsed % 60)
+
+            suggestions = generate_suggestions(risk_events, float(scores_arr.mean()))
+
+            timestamped = []
+            for i, score in enumerate(timeline):
+                timestamped.append({
+                    "timestamp": f"{i // 60}:{i % 60:02d}",
+                    "second": i,
+                    "frame": i * 30,
+                    "compositeRisk": score,
+                    "severity": risk_severity(score),
+                    "factors": [],
+                })
+
+            analyses[session_id] = {
+                "status": "done",
+                "videoId": session_id,
+                "sport": "general",
+                "playerName": "Athlete",
+                "overallRisk": overall_risk,
+                "overallSeverity": risk_severity(overall_risk),
+                "duration": f"{mins}:{secs:02d}",
+                "fps": 30,
+                "risks": risk_events[:20],
+                "pose_keypoints": [],
+                "suggestions": suggestions,
+                "riskTimeline": [int(s) for s in all_scores],
+                "timestampedAnalysis": timestamped,
+                "annotatedVideoUrl": None,
+                "totalFrames": frame_count,
+                "peakRisk": peak_risk,
+            }
+
+        print(f"📷 Camera session {session_id} ended: {frame_count} frames, "
+              f"avg risk {int(np.mean(all_scores)) if all_scores else 0}%")

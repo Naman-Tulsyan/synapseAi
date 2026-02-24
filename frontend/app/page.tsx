@@ -14,10 +14,13 @@ import {
   TrendingUp,
   FileVideo,
   X,
+  Camera,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/navbar";
 import { uploadVideo } from "@/lib/api";
+import LiveCamera from "@/components/live-camera";
 
 const DEMO_SPORTS = [
   {
@@ -74,6 +77,7 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"upload" | "camera">("upload");
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -153,112 +157,163 @@ export default function Home() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, duration: 0.6 }}
-          className="max-w-2xl mx-auto mb-16"
+          className="max-w-3xl mx-auto mb-16"
         >
-          <AnimatePresence mode="wait">
-            {isProcessing ? (
-              <motion.div
-                key="processing"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="glass-card rounded-2xl p-12 text-center"
+          {/* Tab Switcher */}
+          <div className="flex justify-center mb-6">
+            <div className="glass-card rounded-full p-1 inline-flex gap-1">
+              <button
+                onClick={() => setActiveTab("upload")}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+                  activeTab === "upload"
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-500/25"
+                    : "text-white/50 hover:text-white/80"
+                }`}
               >
-                <div className="w-16 h-16 mx-auto mb-6 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
-                <h3 className="text-xl font-semibold text-white mb-2">
-                  AI Processing...
-                </h3>
-                <p className="text-white/40 text-sm">
-                  Running pose estimation & risk analysis
-                </p>
-                <div className="mt-6 space-y-2">
-                  {[
-                    "Extracting frames...",
-                    "Detecting pose landmarks...",
-                    "Analyzing biomechanics...",
-                  ].map((step, i) => (
+                <Upload className="w-4 h-4" />
+                Upload Video
+              </button>
+              <button
+                onClick={() => setActiveTab("camera")}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+                  activeTab === "camera"
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-500/25"
+                    : "text-white/50 hover:text-white/80"
+                }`}
+              >
+                <Camera className="w-4 h-4" />
+                Live Camera
+              </button>
+            </div>
+          </div>
+
+          <AnimatePresence mode="wait">
+            {activeTab === "upload" ? (
+              <motion.div
+                key="upload-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+              >
+                <AnimatePresence mode="wait">
+                  {isProcessing ? (
                     <motion.div
-                      key={step}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.5 }}
-                      className="flex items-center gap-2 justify-center text-sm text-white/40"
+                      key="processing"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="glass-card rounded-2xl p-12 text-center"
                     >
-                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                      {step}
+                      <div className="w-16 h-16 mx-auto mb-6 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
+                      <h3 className="text-xl font-semibold text-white mb-2">
+                        AI Processing...
+                      </h3>
+                      <p className="text-white/40 text-sm">
+                        Running pose estimation & risk analysis
+                      </p>
+                      <div className="mt-6 space-y-2">
+                        {[
+                          "Extracting frames...",
+                          "Detecting pose landmarks...",
+                          "Analyzing biomechanics...",
+                        ].map((step, i) => (
+                          <motion.div
+                            key={step}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.5 }}
+                            className="flex items-center gap-2 justify-center text-sm text-white/40"
+                          >
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                            {step}
+                          </motion.div>
+                        ))}
+                      </div>
                     </motion.div>
-                  ))}
-                </div>
+                  ) : (
+                    <motion.div
+                      key="upload"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDragging(true);
+                        }}
+                        onDragLeave={() => setIsDragging(false)}
+                        onDrop={handleDrop}
+                        className={`glass-card rounded-2xl p-10 text-center cursor-pointer transition-all duration-300 ${
+                          isDragging
+                            ? "border-blue-500/50 bg-blue-500/10 scale-[1.02]"
+                            : "hover:border-white/15"
+                        }`}
+                      >
+                        {uploadedFile ? (
+                          <div className="space-y-4">
+                            <div className="w-14 h-14 mx-auto rounded-xl bg-blue-500/20 flex items-center justify-center">
+                              <FileVideo className="w-7 h-7 text-blue-400" />
+                            </div>
+                            <div>
+                              <p className="text-white font-medium">
+                                {uploadedFile.name}
+                              </p>
+                              <p className="text-white/40 text-sm mt-1">
+                                {(uploadedFile.size / (1024 * 1024)).toFixed(1)}{" "}
+                                MB
+                              </p>
+                            </div>
+                            <div className="flex gap-3 justify-center">
+                              <Button
+                                onClick={handleUpload}
+                                className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                              >
+                                <Play className="w-4 h-4" /> Analyze Video
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => setUploadedFile(null)}
+                                className="border-white/10 text-white/60 hover:text-white gap-2"
+                              >
+                                <X className="w-4 h-4" /> Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <label className="block cursor-pointer">
+                            <input
+                              type="file"
+                              accept="video/*"
+                              className="hidden"
+                              onChange={handleFileSelect}
+                            />
+                            <div className="w-14 h-14 mx-auto rounded-xl bg-white/5 flex items-center justify-center mb-4">
+                              <Upload className="w-7 h-7 text-white/30" />
+                            </div>
+                            <p className="text-white/70 font-medium mb-1">
+                              Drag & drop your sports video
+                            </p>
+                            <p className="text-white/30 text-sm">
+                              MP4, MOV, AVI — Max 50MB
+                            </p>
+                          </label>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             ) : (
               <motion.div
-                key="upload"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+                key="camera-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
               >
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={handleDrop}
-                  className={`glass-card rounded-2xl p-10 text-center cursor-pointer transition-all duration-300 ${
-                    isDragging
-                      ? "border-blue-500/50 bg-blue-500/10 scale-[1.02]"
-                      : "hover:border-white/15"
-                  }`}
-                >
-                  {uploadedFile ? (
-                    <div className="space-y-4">
-                      <div className="w-14 h-14 mx-auto rounded-xl bg-blue-500/20 flex items-center justify-center">
-                        <FileVideo className="w-7 h-7 text-blue-400" />
-                      </div>
-                      <div>
-                        <p className="text-white font-medium">
-                          {uploadedFile.name}
-                        </p>
-                        <p className="text-white/40 text-sm mt-1">
-                          {(uploadedFile.size / (1024 * 1024)).toFixed(1)} MB
-                        </p>
-                      </div>
-                      <div className="flex gap-3 justify-center">
-                        <Button
-                          onClick={handleUpload}
-                          className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                        >
-                          <Play className="w-4 h-4" /> Analyze Video
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => setUploadedFile(null)}
-                          className="border-white/10 text-white/60 hover:text-white gap-2"
-                        >
-                          <X className="w-4 h-4" /> Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <label className="block cursor-pointer">
-                      <input
-                        type="file"
-                        accept="video/*"
-                        className="hidden"
-                        onChange={handleFileSelect}
-                      />
-                      <div className="w-14 h-14 mx-auto rounded-xl bg-white/5 flex items-center justify-center mb-4">
-                        <Upload className="w-7 h-7 text-white/30" />
-                      </div>
-                      <p className="text-white/70 font-medium mb-1">
-                        Drag & drop your sports video
-                      </p>
-                      <p className="text-white/30 text-sm">
-                        MP4, MOV, AVI — Max 50MB
-                      </p>
-                    </label>
-                  )}
-                </div>
+                <LiveCamera />
               </motion.div>
             )}
           </AnimatePresence>

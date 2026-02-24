@@ -1,4 +1,23 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WS_BASE = API_BASE.replace(/^http/, "ws");
+
+export interface CameraAnalysisFrame {
+  type: "analysis";
+  frame: number;
+  risk: number;
+  severity: "HIGH" | "MEDIUM" | "LOW" | "CRITICAL";
+  breakdown: Record<string, number>;
+  avgRisk: number;
+  peakRisk: number;
+  fps: number;
+  elapsed: number;
+  annotatedFrame: string;
+}
+
+export interface CameraSessionStart {
+  type: "session_start";
+  sessionId: string;
+}
 
 export interface RiskEntry {
   timestamp: string;
@@ -134,4 +153,32 @@ export function getAnnotatedVideoUrl(path: string): string {
 
 export function getOriginalVideoUrl(videoId: string): string {
   return `${API_BASE}/video/${videoId}`;
+}
+
+export function getCameraWebSocketUrl(): string {
+  return `${WS_BASE}/ws/camera`;
+}
+
+export async function saveCameraSession(session: {
+  sessionId: string;
+  riskScores: number[];
+  riskTimeline: number[];
+  events: Array<{
+    timestamp: string;
+    frame: number;
+    risk: number;
+    part: string;
+    severity: string;
+    description: string;
+  }>;
+  duration: number;
+  totalFrames: number;
+}): Promise<{ status: string; videoId: string }> {
+  const res = await fetch(`${API_BASE}/camera/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(session),
+  });
+  if (!res.ok) throw new Error("Failed to save camera session");
+  return res.json();
 }
