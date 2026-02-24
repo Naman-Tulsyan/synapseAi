@@ -790,13 +790,20 @@ export default function AnalysisPage() {
       role: "user",
       text: chatInput.trim(),
     };
-    setChatMessages((prev) => [...prev, userMsg]);
+    const updatedMessages = [...chatMessages, userMsg];
+    setChatMessages(updatedMessages);
     setChatInput("");
     setIsTyping(true);
     setRightTab("chat");
 
+    // Build conversation history (exclude the initial AI greeting, send last 20 messages)
+    const history = updatedMessages
+      .filter((m) => m.id !== 1) // skip initial greeting
+      .slice(-20)
+      .map((m) => ({ role: m.role === "ai" ? ("ai" as const) : ("user" as const), text: m.text }));
+
     try {
-      const aiResponse = await sendChat(videoId, userMsg.text);
+      const aiResponse = await sendChat(videoId, userMsg.text, history);
       setChatMessages((prev) => [
         ...prev,
         {
@@ -819,7 +826,7 @@ export default function AnalysisPage() {
       ]);
     }
     setIsTyping(false);
-  }, [chatInput, videoId]);
+  }, [chatInput, videoId, chatMessages]);
 
   const jumpToTimestamp = (timestamp: string) => {
     const parts = timestamp.split(":");

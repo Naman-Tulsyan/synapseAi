@@ -15,6 +15,20 @@ import json
 import time
 from ultralytics import YOLO
 from collections import deque
+from dotenv import load_dotenv
+import google.generativeai as genai
+
+# ── Load environment variables ───────────────────────────────────
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel("gemini-2.0-flash-lite")
+    print("✅ Gemini API configured (model: gemini-2.0-flash-lite)")
+else:
+    gemini_model = None
+    print("⚠️  GEMINI_API_KEY not set — chatbot will use fallback responses")
 
 # ── App Setup ────────────────────────────────────────────────────
 
@@ -51,6 +65,7 @@ analyses: dict = {}
 class ChatMessage(BaseModel):
     message: str
     videoId: Optional[str] = None
+    history: Optional[list[dict]] = None  # conversation history: [{"role": "user"|"ai", "text": "..."}]
 
 class ChatResponse(BaseModel):
     reply: str
@@ -580,8 +595,8 @@ def get_analysis(video_id: str, sport: str = "general"):
 
 
 @app.post("/chat/{video_id}", response_model=ChatResponse)
-def chat_with_ai(video_id: str, msg: ChatMessage):
-    """Context-aware chat powered by actual analysis results."""
+async def chat_with_ai(video_id: str, msg: ChatMessage):
+    """Gemini-powered context-aware chat using analysis JSON data."""
     data = analyses.get(video_id)
     if not data or data.get("status") != "done":
         return ChatResponse(
@@ -589,16 +604,104 @@ def chat_with_ai(video_id: str, msg: ChatMessage):
             confidence=0.5,
         )
 
+    # ── Build analysis context for Gemini ──
+    analysis_context = {
+        "videoId": data.get("videoId"),
+        "sport": data.get("sport"),
+        "playerName": data.get("playerName"),
+        "overallRisk": data.get("overallRisk"),
+        "overallSeverity": data.get("overallSeverity"),
+        "duration": data.get("duration"),
+        "fps": data.get("fps"),
+        "totalFrames": data.get("totalFrames"),
+        "peakRisk": data.get("peakRisk"),
+        "risks": data.get("risks", []),
+        "suggestions": data.get("suggestions", []),
+        "timestampedAnalysis": data.get("timestampedAnalysis", [])[:30],  # limit for token budget
+    }
+
+    system_prompt = f"""You are PoseGuard AI — an expert sports biomechanics and injury prevention assistant.
+You have just finished analyzing a video of an athlete's movement using YOLOv8 pose estimation and biomechanical risk analysis.
+
+Below is the full analysis data in JSON format. Use it to answer the user's questions accurately.
+Give specific, actionable feedback referencing exact timestamps, risk scores, body parts, and angles from the data.
+When the user asks about a body part, cite the relevant risk events and their timestamps.
+When giving recommendations, be specific about exercises, drills, and corrective movements.
+Keep responses clear, concise, and professional. Use markdown formatting (bold, bullet points) for readability.
+If asked something outside the scope of this analysis data, politely redirect to the analysis context.
+
+=== ANALYSIS DATA ===
+{json.dumps(analysis_context, indent=2)}
+=== END DATA ===
+"""
+
+    # ── Build conversation history for Gemini ──
+    gemini_contents = []
+
+    # Add conversation history if provided
+    if msg.history:
+        for h in msg.history:
+            role = "user" if h.get("role") == "user" else "model"
+            gemini_contents.append({"role": role, "parts": [h.get("text", "")]})
+
+    # Add current user message
+    gemini_contents.append({"role": "user", "parts": [msg.message]})
+
+    # ── Call Gemini API with retry for rate limits ──
+    if gemini_model:
+        import asyncio
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Create a model instance with system instruction containing analysis context
+                model_with_context = genai.GenerativeModel(
+                    "gemini-2.0-flash-lite",
+                    system_instruction=system_prompt,
+                )
+                chat = model_with_context.start_chat(history=gemini_contents[:-1])
+                response = chat.send_message(
+                    gemini_contents[-1]["parts"][0],
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.7,
+                        max_output_tokens=1024,
+                    ),
+                )
+
+                reply_text = response.text.strip()
+
+                # Try to extract a related timestamp from the reply
+                import re
+                ts_match = re.search(r'\b(\d{1,2}:\d{2})\b', reply_text)
+                related_ts = ts_match.group(1) if ts_match else None
+
+                return ChatResponse(reply=reply_text, confidence=0.95, relatedTimestamp=related_ts)
+
+            except Exception as e:
+                error_str = str(e)
+                print(f"Gemini API error (attempt {attempt + 1}/{max_retries}): {e}")
+
+                # Retry on 429 rate limit errors
+                if "429" in error_str and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
+                    print(f"  Rate limited — retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    continue
+
+                # On final retry or non-429 error, fall through to keyword fallback
+                print("  Falling back to keyword-based responses")
+                break
+
+    # ── Fallback: keyword matching (used when Gemini is unavailable or rate-limited) ──
     text = msg.message.lower()
     risks = data.get("risks", [])
 
-    # Find risks matching the user's query by body part keywords
+    # Match by body part keywords
     part_keywords = {
-        "knee": ["knee", "acl", "valgus"],
-        "hip": ["hip"],
-        "lower_back": ["back", "lumbar", "spine", "trunk"],
-        "shoulder": ["shoulder", "rotation"],
-        "ankle": ["ankle", "dorsiflexion"],
+        "knee": ["knee", "acl", "valgus", "leg"],
+        "hip": ["hip", "flexor", "pelvis"],
+        "lower_back": ["back", "lumbar", "spine", "trunk", "core"],
+        "shoulder": ["shoulder", "rotation", "arm"],
+        "ankle": ["ankle", "dorsiflexion", "foot"],
     }
 
     matched_risks = []
@@ -612,17 +715,17 @@ def chat_with_ai(video_id: str, msg: ChatMessage):
         top = max(matched_risks, key=lambda x: x["risk"])
         part_name = top["part"].replace("_", " ").title()
         reply = (
-            f"🔍 **{part_name} Analysis** — At {top['timestamp']}, I detected a risk level of "
+            f"🔍 **{part_name} Analysis** — At {top['timestamp']}, risk level of "
             f"**{top['risk']}% ({top['severity']})**.\n\n{top['description']}"
         )
         if top.get("angle"):
-            reply += f"\n\nMeasured angle deviation: **{top['angle']}°**."
+            reply += f"\n\nMeasured angle: **{top['angle']}°**."
         related = [r for r in risks if r["part"] == top["part"] and r != top]
         if related:
-            reply += f"\n\nAdditionally found {len(related)} other {part_name.lower()} event(s) in this session."
-        return ChatResponse(reply=reply, confidence=0.92, relatedTimestamp=top["timestamp"])
+            reply += f"\n\n+{len(related)} more {part_name.lower()} event(s) found."
+        return ChatResponse(reply=reply, confidence=0.85, relatedTimestamp=top["timestamp"])
 
-    if "overall" in text or "summary" in text or "assessment" in text:
+    if any(kw in text for kw in ["overall", "summary", "assessment", "report", "overview"]):
         overall = data["overallRisk"]
         total_events = len(risks)
         high_events = sum(1 for r in risks if r["severity"] in ("HIGH", "CRITICAL"))
@@ -635,20 +738,27 @@ def chat_with_ai(video_id: str, msg: ChatMessage):
             reply += f"\n\nHighest risk: **{top['part'].replace('_', ' ').title()}** at {top['timestamp']} ({top['risk']}%)."
         if data.get("suggestions"):
             reply += "\n\n**Top Recommendations:**\n" + "\n".join(f"• {s}" for s in data["suggestions"][:3])
-        return ChatResponse(reply=reply, confidence=0.93)
+        return ChatResponse(reply=reply, confidence=0.85)
 
-    # Default response with session context
+    if any(kw in text for kw in ["recommend", "suggest", "exercise", "drill", "fix", "improve", "prevent"]):
+        if data.get("suggestions"):
+            reply = "💡 **Recommendations based on your analysis:**\n\n" + "\n".join(f"• {s}" for s in data["suggestions"])
+        else:
+            reply = "✅ No specific recommendations — your biomechanics look good!"
+        return ChatResponse(reply=reply, confidence=0.85)
+
+    # Default: show top risk
     if risks:
         top = max(risks, key=lambda x: x["risk"])
         reply = (
             f"🤖 I analyzed this session and found **{len(risks)} risk events**. "
             f"The highest priority is **{top['part'].replace('_', ' ')}** at {top['timestamp']} "
-            f"({top['risk']}% risk).\n\nAsk me about any specific body part — knee, hip, shoulder, back, or ankle!"
+            f"({top['risk']}% risk).\n\nAsk me about specific body parts — knee, hip, shoulder, back, or ankle!"
         )
     else:
-        reply = "✅ No significant risks were detected in this session. The biomechanics look good! Keep up the great form."
+        reply = "✅ No significant risks were detected. Great biomechanics!"
 
-    return ChatResponse(reply=reply, confidence=0.85)
+    return ChatResponse(reply=reply, confidence=0.70)
 
 
 @app.get("/players/{player_id}")

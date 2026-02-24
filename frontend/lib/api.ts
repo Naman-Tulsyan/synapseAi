@@ -133,11 +133,12 @@ export async function getAnalysis(
 export async function sendChat(
   videoId: string,
   message: string,
+  history?: { role: "user" | "ai"; text: string }[],
 ): Promise<ChatResponse> {
   const res = await fetch(`${API_BASE}/chat/${videoId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, videoId }),
+    body: JSON.stringify({ message, videoId, history: history || [] }),
   });
   return res.json();
 }
